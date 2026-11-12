@@ -1,0 +1,67 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: btc_tracker_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-btc_tracker_db}
+      POSTGRES_USER: ${POSTGRES_USER:-btc_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-btc_secure_password_123}
+    ports:
+      - "${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-btc_user} -d ${POSTGRES_DB:-btc_tracker_db}"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    networks:
+      btc_tracker_net:
+        aliases:
+          - db
+
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: btc_tracker_bot
+    restart: unless-stopped
+    command: sh -c "alembic upgrade head && python bot.py"
+    env_file:
+      - .env
+    environment:
+      - POSTGRES_HOST=db
+      - DATABASE_URL=postgresql+psycopg2://${POSTGRES_USER:-btc_user}:${POSTGRES_PASSWORD:-btc_secure_password_123}@db:5432/${POSTGRES_DB:-btc_tracker_db}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - btc_tracker_net
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: btc_tracker_worker
+    restart: unless-stopped
+    command: sh -c "python worker.py"
+    env_file:
+      - .env
+    environment:
+      - POSTGRES_HOST=db
+      - DATABASE_URL=postgresql+psycopg2://${POSTGRES_USER:-btc_user}:${POSTGRES_PASSWORD:-btc_secure_password_123}@db:5432/${POSTGRES_DB:-btc_tracker_db}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - btc_tracker_net
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  btc_tracker_net:
+    driver: bridge
